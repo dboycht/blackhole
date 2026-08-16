@@ -214,7 +214,7 @@ footer .rule{width:44px;height:1px;background:rgba(255,179,107,.4);margin:0 auto
   <div class="brand">
     <div class="eyebrow">Real-Time Ray Tracing</div>
     <h1>GARGANTUA</h1>
-    <div class="sub">施瓦西黑洞 · 真正的引力透镜 <span class="ver">v1.00.2</span></div>
+    <div class="sub">施瓦西黑洞 · 体积化吸积盘 <span class="ver">v1.00.3</span></div>
   </div>
 
   <div class="tele">
@@ -237,14 +237,14 @@ footer .rule{width:44px;height:1px;background:rgba(255,179,107,.4);margin:0 auto
 
 <main>
   <section class="sec"><div class="panel rv">
-    <h2><span class="en">Ray Tracing, not textures</span>这条盘不是贴图,是光线在弯曲</h2>
+    <h2><span class="en">Volumetric Accretion Disk</span>一团气体,不是一个平面</h2>
     <p>每一个像素,我们都从相机发射一条光线,让它沿着<b>施瓦西测地线</b>一步步积分。<em>光线掠近黑洞时被引力弯折</em>——绕行半圈、一整圈,或者径直坠入事件视界、永远不再回来。</p>
-    <p>因此你会看到:背景星辰被拉成<b>爱因斯坦环</b>,盘面的远端从黑洞上方折返成一道弧光,而盘面本身左右两侧一亮一暗——那是<b>多普勒效应</b>:迎着你的气体被蓝移提亮,背着你的被红移压暗。</p>
+    <p>吸积盘在这版里是一团<b>体积化的发光气体</b>:射线穿入其中,逐段累计发射与吸收——因此盘有厚度、有绒毛状的表面,前后两层能互相透出。气体沿开普勒轨道<b>差速旋转</b>,内圈肉眼可见地转得更快,把噪声剪切成沿轨道拉长的螺旋丝缕。而盘面左右两侧一亮一暗、一蓝一红——那是<b>多普勒效应</b>在起作用。</p>
     <div class="mono-stats">
       <div class="m">积分步数 / 像素<b>200</b></div>
       <div class="m">测地线方程<b>d²x/dλ² = −3/2·(rs/r³)·(v×h)</b></div>
-      <div class="m">亮度 ∝ 多普勒³<b>g = γ(1+β·n̂)</b></div>
-      <div class="m">光子球 · 阴影<b>1.5 rs · 2.6 rs</b></div>
+      <div class="m">体积发射·吸收<b>col += T·ε·ds / T·e^-κds</b></div>
+      <div class="m">开普勒差速<b>Ω ∝ r^-3/2</b></div>
     </div>
   </div></section>
 
@@ -275,7 +275,7 @@ footer .rule{width:44px;height:1px;background:rgba(255,179,107,.4);margin:0 auto
 
 <footer>
   <div class="rule"></div>
-  Gargantua · 1.00.2 · WebGL2 Real-Time Geodesic Tracing
+  Gargantua · 1.00.3 · WebGL2 Volumetric Accretion Disk
 </footer>
 
 <div id="fallback"><div><b>需要 WebGL2</b>请使用最新版 Chrome / Edge / Firefox 打开。</div></div>
@@ -287,7 +287,7 @@ footer .rule{width:44px;height:1px;background:rgba(255,179,107,.4);margin:0 auto
 window.BHS = {
   rate: 1,            // 时间倍率(滑块 → 盘面/星辰速度)
   red: 0,             // 引力红移泛红 0..1
-  tAzi: 0.45, tInc: 1.40, tR: 7.5,   // 相机目标(球坐标)
+  tAzi: 0.45, tInc: 1.38, tR: 8.5,   // 相机目标(球坐标)
   auto: true, fps: 60
 };
 
@@ -367,6 +367,45 @@ window.BHS = {
     float r=length(p);
     return -1.26*(uRs/(r*r*r))*cross(v,cross(p,v));   // 校准系数, 使阴影≈2.598rs
   }
+  float fbm(vec3 p){
+    float v=0., a=.55;
+    for(int i=0;i<4;i++){ v+=a*vnoise(p); p=p*2.17+13.7; a*=.5; }
+    return v;
+  }
+  float fbm3(vec3 p){
+    float v=0., a=.6;
+    for(int i=0;i<3;i++){ v+=a*vnoise(p); p=p*2.31+7.3; a*=.5; }
+    return v;
+  }
+  float omega(float r){ return sqrt(0.5/(r*r*r)); }        // 开普勒角速度
+  float diskH(float r){ return 0.11*pow(r,1.1); }          // 盘面半厚(微外张)
+  // 丝缕噪声: 两段相位交叉淡化 + 每半径差速旋转 → 剪切螺旋, 无接缝
+  float filNoise(vec3 p, float r, float t){
+    float T=6.2831853;
+    float t0=mod(t,T), t1=mod(t+T*.5,T);
+    float k=abs(t0/T*2.-1.);
+    float a0=omega(r)*(t0-T*.5), a1=omega(r)*(t1-T*.5);
+    float c0=cos(a0), s0=sin(a0), c1=cos(a1), s1=sin(a1);
+    float n0=fbm3(vec3(c0*p.x-s0*p.y, s0*p.x+c0*p.y, p.z*2.2)*1.35);
+    float n1=fbm3(vec3(c1*p.x-s1*p.y, s1*p.x+c1*p.y, p.z*2.2)*1.35);
+    return mix(n0,n1,k);
+  }
+  float diskDensity(vec3 p, float t){
+    float r=length(p.xy);
+    if(r<uDiskIn-.3||r>uDiskOut) return 0.;
+    float H=diskH(r);
+    if(abs(p.z)>2.6*H) return 0.;                   // 廉价门控: 远离盘面直接跳过
+    float phi=atan(p.y,p.x);
+    float zh=abs(p.z+.06*sin(2.*phi+r*1.7))/H;      // 微盘面起伏
+    if(zh>2.6) return 0.;
+    float vert=exp(-zh*zh*1.8);
+    float n=filNoise(p,r,t);
+    float rings=.5+.5*sin(r*11.+n*4.5+phi*.35);     // 沿轨道拉长的流线丝缕
+    float fil=n*.62+pow(rings,2.2)*.38;
+    fil=pow(smoothstep(.14,.86,fil),1.35);
+    float rad=smoothstep(uDiskIn-.3,uDiskIn+.6,r)*smoothstep(uDiskOut,uDiskOut*.6,r);
+    return vert*fil*rad;
+  }
   vec3 bbTemp(float T){
     vec3 c;
     c.r = clamp(T/4000., 0.15, 1.0);
@@ -374,27 +413,22 @@ window.BHS = {
     c.b = smoothstep(2500., 6500., T);
     return c;
   }
-  vec3 disk(vec3 p, vec3 dir){
+  vec3 diskEmit(vec3 p, vec3 dir){
     float r=length(p);
-    float om=sqrt(uRs/(2.*r*r*r));
     vec3 vu=normalize(cross(vec3(0.,0.,1.),p));
-    float beta=om*r;
-    float gam=inversesqrt(max(.01,1.-beta*beta));
+    float beta=min(.82,omega(r)*r);
+    float gam=inversesqrt(max(.02,1.-beta*beta));
     float gDop=1./(gam*(1.+beta*dot(vu,dir)));
     float gGrav=sqrt(clamp(1.-uRs/r,.001,1.));
     float g=gDop*gGrav;
-    float temp=6000.*pow(uDiskIn/r,.75);
+    float temp=6200.*pow(uDiskIn/r,.75);
     vec3 c=bbTemp(temp*g);                          // 黑体色温 × 红蓝移
     float los=-dot(vu,dir);                         // >0 气体朝观测者运动(蓝移)
     c*=mix(vec3(1.),vec3(.52,.84,1.6),smoothstep(.02,.18,los));  // 迎面 → 补蓝
     c*=mix(vec3(1.),vec3(1.5,1.03,.7),smoothstep(.02,.18,-los)); // 背向 → 补红
-    float br=pow(uDiskIn/r,1.15)*pow(g,2.4);
-    float ang=atan(p.y,p.x);
-    float turb=1.+.22*sin(3.*ang-1.2*log(r)+uTime*uRate*.9)
-              +.1*sin(7.*ang+2.5*log(r)-uTime*uRate*1.5)
-              +.05*sin(13.*ang-3.*log(r)+uTime*uRate*2.2);
-    float fade=smoothstep(uDiskOut, uDiskOut*.68, r);   // 外缘柔和淡出
-    c*=(br*turb*1.6*fade);
+    float rim=exp(-(r-uDiskIn)*.9);                 // 内缘炽热
+    float br=pow(uDiskIn/r,1.2)*pow(g,2.4)*(1.+1.6*rim);
+    c*=br;
     c*=mix(vec3(1.),vec3(1.,.55,.35),clamp(uRed,0.,1.)*.85);
     return c;
   }
@@ -405,26 +439,27 @@ window.BHS = {
     vec3 up=cross(right,fwd);
     vec3 rd=normalize(fwd+ndc.x*right*uFocal+ndc.y*up*uFocal);
     vec3 pos=uCamPos, dir=rd;
-    float zPrev=pos.z;
-    vec3 col=vec3(0.); int mode=0;
+    vec3 col=vec3(0.); float trans=1.;
+    bool escaped=false, captured=false;
+    float tD=uTime*uRate;
     for(int i=0;i<200;i++){
       float r=length(pos);
-      if(r<uRs*.96){ mode=3; break; }
-      if(r>22.){ col=sky(dir); mode=2; break; }
+      if(r<uRs*.96){ captured=true; break; }
+      if(r>22.){ escaped=true; break; }
       float dt=clamp(.028*(r/uRs-.5),.006,.4);
       vec3 old=dir;
       dir=normalize(dir+acc(pos,dir)*dt);
       vec3 np=pos+old*dt;
-      float zn=np.z;
-      if(zPrev*zn<0.){
-        float tm=zPrev/(zPrev-zn);
-        vec3 cp=pos+old*dt*tm;
-        float rc=length(cp);
-        if(rc>=uDiskIn&&rc<=uDiskOut){ col=disk(cp,dir); mode=1; break; }
+      float d=diskDensity(np,tD);
+      if(d>0.002){
+        col+=trans*diskEmit(np,dir)*(d*dt*1.35);    // 体积发射
+        trans*=exp(-d*dt*2.6);                      // 体积吸收: 近盘遮远盘
+        if(trans<.02) break;
       }
-      pos=np; zPrev=zn;
+      pos=np;
     }
-    if(mode==0) col=vec3(.9,.7,.5)*.22;   // 光子环兜底
+    if(escaped) col+=trans*sky(dir);
+    else if(!captured) col+=trans*vec3(1.,.78,.55)*.45;   // 光子环兜底
     o=vec4(col,1.);
   }`;
 
@@ -702,7 +737,7 @@ window.BHS = {
     const now = performance.now();
     if(now - P.lastAct > 4000 && BHS.auto && !P.drag){
       BHS.tAzi += 0.05;
-      BHS.tInc = 1.40 + 0.09*Math.sin(now*0.00012);
+      BHS.tInc = 1.38 + 0.08*Math.sin(now*0.00012);
       if(reduce) BHS.auto = false;
     }
   }, 600);
