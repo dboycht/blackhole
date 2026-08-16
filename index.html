@@ -1,0 +1,905 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EVENT HORIZON · 黑洞 / 事件视界</title>
+<meta name="description" content="一个关于黑洞的交互式观测站：实时引力透镜模拟、时间膨胀、以及你永远无法抵达的边界。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Marcellus&family=Share+Tech+Mono&family=Noto+Serif+SC:wght@600;700;900&family=Noto+Sans+SC:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  /* ============ TOKENS ============ */
+  :root{
+    --bg:#04050a;
+    --bg2:#090b12;
+    --panel:rgba(255,255,255,.028);
+    --ink:#ecebe6;
+    --muted:#9aa0b4;
+    --dim:#5b6178;
+    --orange:#ff9a4d;
+    --amber:#ffc77a;
+    --blue:#9db8ff;
+    --line:rgba(255,255,255,.08);
+    --ease:cubic-bezier(.16,1,.3,1);
+    --font-display:"Marcellus","Noto Serif SC","STZhongsong","SimSun",serif;
+    --font-serif:"Noto Serif SC","STZhongsong","SimSun",serif;
+    --font-sans:"Noto Sans SC","Microsoft YaHei","PingFang SC",sans-serif;
+    --font-mono:"Share Tech Mono","Consolas",monospace;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:var(--font-sans);
+    font-weight:300;
+    overflow-x:hidden;
+    -webkit-font-smoothing:antialiased;
+  }
+  ::selection{background:rgba(255,154,77,.25)}
+  a{color:inherit;text-decoration:none}
+  .mono{font-family:var(--font-mono)}
+
+  /* grain + scanline atmosphere */
+  .grain{
+    position:fixed;inset:-50%;
+    width:200%;height:200%;
+    pointer-events:none;z-index:60;
+    opacity:.05;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    animation:grain 0.7s steps(3) infinite;
+  }
+  @keyframes grain{
+    0%{transform:translate(0,0)}25%{transform:translate(-1.5%,1%)}
+    50%{transform:translate(1%,-1.5%)}75%{transform:translate(-1%,-1%)}100%{transform:translate(0,0)}
+  }
+  .scanlines{
+    position:fixed;inset:0;pointer-events:none;z-index:59;
+    background:repeating-linear-gradient(to bottom,rgba(255,255,255,.012) 0 1px,transparent 1px 3px);
+    mix-blend-mode:overlay;
+  }
+  .bg-stars{
+    position:fixed;inset:0;z-index:0;pointer-events:none;
+    background-image:
+      radial-gradient(1px 1px at 12% 22%,rgba(255,255,255,.5),transparent 60%),
+      radial-gradient(1px 1px at 64% 8%,rgba(190,205,255,.4),transparent 60%),
+      radial-gradient(1.5px 1.5px at 82% 34%,rgba(255,255,255,.55),transparent 60%),
+      radial-gradient(1px 1px at 31% 64%,rgba(200,210,255,.35),transparent 60%),
+      radial-gradient(1px 1px at 48% 81%,rgba(255,255,255,.4),transparent 60%),
+      radial-gradient(1.5px 1.5px at 90% 74%,rgba(255,220,190,.45),transparent 60%),
+      radial-gradient(1px 1px at 7% 90%,rgba(190,200,255,.35),transparent 60%);
+    animation:twinkle 6s ease-in-out infinite alternate;
+  }
+  @keyframes twinkle{from{opacity:.5}to{opacity:1}}
+
+  /* ============ HEADER ============ */
+  header.site-head{
+    position:fixed;top:0;left:0;right:0;z-index:50;
+    display:flex;align-items:center;justify-content:space-between;
+    padding:22px clamp(20px,4vw,48px);
+    mix-blend-mode:difference;
+  }
+  .brand{display:flex;align-items:baseline;gap:10px;font-size:15px;letter-spacing:.14em}
+  .brand .logo{font-family:var(--font-display);font-size:17px;letter-spacing:.1em}
+  .brand .cn{font-size:12px;color:rgba(236,235,230,.6);letter-spacing:.4em}
+  nav.head-nav{display:flex;gap:clamp(14px,3vw,34px);font-size:12px;letter-spacing:.22em}
+  nav.head-nav a{opacity:.55;transition:opacity .4s var(--ease)}
+  @media(hover:hover) and (pointer:fine){nav.head-nav a:hover{opacity:1}}
+
+  /* ============ HERO ============ */
+  .hero{position:relative;height:100svh;min-height:640px;overflow:hidden}
+  #bh{position:absolute;inset:0;width:100%;height:100%;display:block;cursor:crosshair}
+  .hero-ui{
+    position:absolute;inset:0;z-index:5;pointer-events:none;
+    display:flex;flex-direction:column;justify-content:space-between;
+    padding:clamp(80px,12vh,110px) clamp(20px,5vw,64px) 40px;
+  }
+  .eyebrow{
+    font-size:clamp(10px,1.1vw,12px);letter-spacing:.34em;color:var(--amber);
+    display:flex;align-items:center;gap:12px;
+  }
+  .eyebrow::before{content:"";width:34px;height:1px;background:var(--amber);opacity:.6}
+  .hero-title{
+    font-family:var(--font-display);
+    font-weight:400;
+    font-size:clamp(3.4rem,11vw,9.5rem);
+    line-height:.86;
+    letter-spacing:.02em;
+    color:#f4f1e8;
+    text-shadow:0 0 60px rgba(255,150,70,.12);
+  }
+  .hero-title .cn{
+    display:block;
+    font-family:var(--font-serif);
+    font-weight:900;
+    font-size:clamp(1.15rem,2.6vw,2.1rem);
+    letter-spacing:.5em;
+    color:var(--amber);
+    margin-top:22px;
+    text-shadow:0 0 30px rgba(255,154,77,.25);
+  }
+  .hero-tag{
+    margin-top:20px;max-width:26em;
+    font-size:clamp(.92rem,1.35vw,1.05rem);line-height:1.9;
+    color:var(--muted);
+  }
+  .hero-tag b{color:var(--ink);font-weight:500}
+  .hero-bottom{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap}
+  .hint{
+    font-size:11px;letter-spacing:.28em;color:var(--dim);
+    display:inline-flex;align-items:center;gap:10px;
+  }
+  .hint .dot{width:5px;height:5px;border-radius:50%;background:var(--orange);animation:pulse 2.2s ease-in-out infinite}
+  @keyframes pulse{0%,100%{opacity:.3;transform:scale(.8)}50%{opacity:1;transform:scale(1.15)}}
+  .scroll-cue{
+    font-size:10px;letter-spacing:.4em;color:var(--dim);
+    writing-mode:vertical-rl;
+    animation:cuedrift 2.6s var(--ease) infinite;
+  }
+  @keyframes cuedrift{0%,100%{transform:translateY(-4px);opacity:.4}50%{transform:translateY(4px);opacity:1}}
+
+  /* HUD panels */
+  .hud{
+    position:absolute;z-index:6;pointer-events:none;
+    top:clamp(84px,13vh,120px);right:clamp(20px,4vw,56px);
+    min-width:200px;
+    padding:16px 18px;
+    background:var(--panel);
+    border:1px solid var(--line);
+    backdrop-filter:blur(6px);
+    transform:scale(.95);
+    animation:pop .9s var(--ease) .3s forwards;
+  }
+  .hud h4{
+    font-size:10px;letter-spacing:.3em;color:var(--dim);
+    margin-bottom:12px;font-weight:400;
+  }
+  .hud .row{
+    display:flex;justify-content:space-between;align-items:baseline;
+    padding:5px 0;border-bottom:1px dashed rgba(255,255,255,.05);
+    font-size:11px;
+  }
+  .hud .row:last-child{border-bottom:none}
+  .hud .k{color:var(--dim);letter-spacing:.08em}
+  .hud .v{color:var(--ink);letter-spacing:.04em}
+  .hud .v.hot{color:var(--amber)}
+  .hud-live .v{transition:color .3s}
+  @keyframes pop{from{opacity:0;transform:scale(.95)}to{opacity:1;transform:scale(1)}}
+
+  .hud-left{left:clamp(20px,4vw,56px);top:auto;bottom:clamp(70px,12vh,96px);min-width:0;animation-delay:.5s}
+
+  /* section scaffold */
+  section{position:relative;z-index:2;padding:clamp(90px,13vh,150px) clamp(20px,6vw,72px)}
+  .sec-label{
+    font-size:11px;letter-spacing:.4em;color:var(--orange);
+    margin-bottom:clamp(20px,3vh,36px);
+  }
+  .sec-label::before{content:"— ";opacity:.5}
+  h2.sec-title{
+    font-family:var(--font-serif);font-weight:900;
+    font-size:clamp(1.9rem,4.6vw,3.6rem);line-height:1.25;
+    letter-spacing:.04em;max-width:16em;
+  }
+  h2.sec-title em{font-style:normal;color:var(--amber)}
+  .sec-sub{
+    margin-top:18px;max-width:34em;color:var(--muted);
+    line-height:1.95;font-size:clamp(.92rem,1.2vw,1.02rem);
+  }
+
+  /* reveal */
+  .reveal{opacity:0;transform:translateY(28px);transition:opacity .95s var(--ease),transform .95s var(--ease)}
+  .reveal.in{opacity:1;transform:none}
+  .stagger>*{opacity:0;transform:translateY(26px);transition:opacity .8s var(--ease),transform .8s var(--ease)}
+  .stagger.in>*{opacity:1;transform:none}
+  .stagger.in>*:nth-child(2){transition-delay:.08s}
+  .stagger.in>*:nth-child(3){transition-delay:.16s}
+  .stagger.in>*:nth-child(4){transition-delay:.24s}
+  .stagger.in>*:nth-child(5){transition-delay:.32s}
+  .stagger.in>*:nth-child(6){transition-delay:.4s}
+
+  /* ============ PHYSICS CARDS ============ */
+  #physics{padding-top:clamp(110px,16vh,180px)}
+  .cards{
+    margin-top:clamp(36px,6vh,64px);
+    display:grid;grid-template-columns:repeat(4,1fr);
+    gap:1px;background:var(--line);
+    border:1px solid var(--line);
+  }
+  .card{
+    position:relative;background:var(--bg2);
+    padding:clamp(24px,3vw,38px);
+    overflow:hidden;
+  }
+  .card::after{
+    content:"";position:absolute;inset:0;pointer-events:none;
+    background:linear-gradient(150deg,rgba(255,255,255,.04),transparent 40%);
+  }
+  .card .num{
+    font-family:var(--font-mono);font-size:11px;color:var(--dim);
+    letter-spacing:.3em;margin-bottom:26px;display:block;
+  }
+  .card .cn-title{
+    font-family:var(--font-serif);font-weight:700;
+    font-size:1.35rem;letter-spacing:.1em;
+  }
+  .card .en-title{
+    font-family:var(--font-mono);font-size:10.5px;color:var(--orange);
+    letter-spacing:.28em;margin:8px 0 18px;display:block;
+  }
+  .card p{color:var(--muted);font-size:.88rem;line-height:1.95}
+  .card p b{color:var(--ink);font-weight:500}
+
+  .card-vis{
+    height:120px;margin-top:30px;
+    display:flex;align-items:center;justify-content:center;
+    position:relative;
+  }
+  /* card 1 · event horizon */
+  .bh-dot{width:58px;height:58px;border-radius:50%;background:#000;box-shadow:0 0 0 2px rgba(255,154,77,.5),0 0 34px rgba(255,120,50,.32),inset 0 0 20px #000}
+  .bh-dot::before{content:"";position:absolute;width:86px;height:86px;border-radius:50%;border:1px solid rgba(255,170,90,.22);}
+  .bh-dot::after{content:"";position:absolute;width:118px;height:118px;border-radius:50%;border:1px dashed rgba(255,170,90,.1);animation:spin 22s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  /* card 2 · photon sphere */
+  .orbit-wrap{position:relative;width:120px;height:120px}
+  .orbit-wrap .o{position:absolute;border-radius:50%;border:1px solid rgba(157,184,255,.18)}
+  .orbit-wrap .o1{inset:0}.orbit-wrap .o2{inset:16px;border-color:rgba(157,184,255,.3)}
+  .orbit-wrap .o3{inset:34px;border-color:rgba(157,184,255,.42)}
+  .orbit-wrap .p{position:absolute;width:5px;height:5px;border-radius:50%;background:#dbe6ff;top:0;left:calc(50% - 2.5px);filter:drop-shadow(0 0 6px #9db8ff);animation:orbit 3.4s linear infinite;transform-origin:0 60px}
+  .orbit-wrap .p2{animation-duration:5.2s;animation-delay:-2.2s;width:3px;height:3px}
+  @keyframes orbit{to{transform:rotate(360deg)}}
+  /* card 3 · spaghettification */
+  .astro{
+    width:26px;height:88px;border-radius:50% 50% 46% 46%;
+    background:linear-gradient(180deg,#ffd9a0,#ffb25e 55%,#ff8c42);
+    box-shadow:0 0 22px rgba(255,150,80,.3);
+    transition:transform 1.4s var(--ease);
+    position:relative;
+  }
+  .astro::before{content:"";position:absolute;top:-6px;left:50%;transform:translateX(-50%);width:30px;height:30px;border-radius:50%;background:radial-gradient(circle at 40% 40%,#ffe9c6,#ffb25e)}
+  .astro::after{content:"";position:absolute;bottom:-8px;left:50%;transform:translateX(-50%);width:34px;height:10px;border-radius:50%;background:#ff8c42;filter:blur(1px)}
+  .card:nth-child(3):hover .astro{
+    transform:scale(1.28,2.15);
+  }
+  .card:nth-child(3) .astro{animation:astrowiggle 4s ease-in-out infinite}
+  @keyframes astrowiggle{0%,100%{transform:scale(1,1)}35%{transform:scale(1.05,1.15)}50%{transform:scale(1,1)}}
+  /* card 4 · hawking radiation */
+  .hawk{position:relative;width:120px;height:120px}
+  .hawk .hcore{position:absolute;inset:36px;border-radius:50%;background:#0a0d16;box-shadow:0 0 24px rgba(157,184,255,.12)}
+  .hawk .beam{position:absolute;width:2px;height:2px;border-radius:50%;background:#9db8ff;left:60px;top:60px;animation:radiate 3.6s ease-out infinite;opacity:0}
+  .hawk .beam:nth-child(2){animation-delay:1.2s}
+  .hawk .beam:nth-child(3){animation-delay:2.4s}
+  .hawk .beam:nth-child(4){animation-delay:.6s}
+  .hawk .beam:nth-child(5){animation-delay:1.8s}
+  @keyframes radiate{
+    0%{transform:translate(0,0) scale(1);opacity:0}
+    15%{opacity:.9}
+    100%{transform:translate(var(--dx),var(--dy)) scale(1.6);opacity:0}
+  }
+
+  /* ============ TIME DILATION ============ */
+  #dilation{
+    background:linear-gradient(180deg,transparent,rgba(255,120,50,.02) 30%,rgba(9,11,18,1));
+    border-top:1px solid var(--line);
+  }
+  .dil-wrap{
+    margin-top:clamp(40px,7vh,70px);
+    display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);
+    gap:clamp(32px,6vw,90px);align-items:center;
+  }
+  .dil-readout{text-align:center;position:relative}
+  .dil-ring{
+    width:min(300px,60vw);aspect-ratio:1;margin:0 auto;
+    border-radius:50%;
+    display:flex;align-items:center;justify-content:center;
+    background:
+      radial-gradient(closest-side,#07080d 96%,transparent 100%),
+      conic-gradient(from 220deg,var(--orange) var(--deg,10deg),rgba(255,255,255,.05) 0);
+    box-shadow:0 0 80px rgba(255,120,50,.1),inset 0 0 40px rgba(0,0,0,.6);
+    position:relative;
+  }
+  .dil-ring::after{content:"";position:absolute;inset:12px;border-radius:50%;border:1px dashed rgba(255,154,77,.14)}
+  .dil-factor{
+    font-family:var(--font-display);
+    font-size:clamp(2.6rem,6vw,4.2rem);
+    letter-spacing:.02em;color:#fff;
+    font-variant-numeric:tabular-nums;
+    text-shadow:0 0 34px rgba(255,150,70,.35);
+  }
+  .dil-factor .times{font-size:.45em;color:var(--amber)}
+  .dil-factormeta{font-family:var(--font-mono);font-size:10px;color:var(--dim);letter-spacing:.26em;margin-top:8px}
+  .dil-controls{padding:6px 0}
+  .dil-label{display:flex;justify-content:space-between;font-family:var(--font-mono);font-size:10px;letter-spacing:.26em;color:var(--dim);margin-bottom:20px}
+  input[type=range]{
+    -webkit-appearance:none;appearance:none;
+    width:100%;height:34px;background:transparent;cursor:ew-resize;
+  }
+  input[type=range]::-webkit-slider-runnable-track{
+    height:2px;background:linear-gradient(90deg,var(--blue),#8a93b8 60%,var(--orange));
+    border-radius:2px;
+  }
+  input[type=range]::-moz-range-track{height:2px;background:linear-gradient(90deg,var(--blue),#8a93b8 60%,var(--orange))}
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;appearance:none;
+    width:18px;height:18px;border-radius:50%;margin-top:-8px;
+    background:#07080d;border:2px solid var(--amber);
+    box-shadow:0 0 14px rgba(255,154,77,.6);
+    transition:transform .3s var(--ease);
+  }
+  input[type=range]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;background:#07080d;border:2px solid var(--amber);box-shadow:0 0 14px rgba(255,154,77,.6)}
+  input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.25)}
+  .dil-scale{display:flex;justify-content:space-between;font-family:var(--font-mono);font-size:10px;letter-spacing:.14em;color:var(--dim);margin-top:6px}
+  .dil-scale span:last-child{color:var(--orange)}
+  .dil-note{
+    margin-top:34px;color:var(--muted);line-height:1.9;
+    font-size:clamp(.95rem,1.3vw,1.1rem);
+    border-left:2px solid var(--orange);padding-left:18px;
+    min-height:3.6em;
+  }
+  .dil-note b{color:var(--amber);font-weight:500}
+
+  /* ============ BEYOND / FINALE ============ */
+  #beyond{
+    padding-top:clamp(110px,16vh,180px);
+    background:
+      radial-gradient(60% 40% at 50% 0%,rgba(255,120,50,.05),transparent 70%);
+    text-align:center;
+  }
+  .falling{position:relative;width:140px;height:140px;margin:0 auto clamp(30px,5vh,50px)}
+  .falling .hole{
+    position:absolute;left:50%;top:50%;width:74px;height:74px;
+    transform:translate(-50%,-50%);
+    border-radius:50%;background:#000;
+    box-shadow:0 0 0 1px rgba(255,154,77,.4),0 0 44px rgba(255,120,50,.28);
+  }
+  .falling .me{
+    position:absolute;left:calc(50% - 3px);top:0;width:6px;height:6px;
+    border-radius:50%;background:#fff;
+    box-shadow:0 0 8px #fff;
+    animation:fall 7s var(--ease) infinite;
+  }
+  @keyframes fall{
+    0%{transform:translate(0,0);opacity:0}
+    8%{opacity:1}
+    92%{opacity:1}
+    100%{transform:translate(-2px,52px) scale(.72);opacity:0}
+  }
+  .beyond-line{
+    font-family:var(--font-serif);font-weight:900;
+    font-size:clamp(1.7rem,4.2vw,3.3rem);line-height:1.5;letter-spacing:.05em;
+    max-width:20em;margin:0 auto;
+  }
+  .beyond-line em{font-style:normal;color:var(--amber)}
+  .beyond-sub{margin-top:26px;color:var(--muted);line-height:2;max-width:34em;margin-left:auto;margin-right:auto;font-size:clamp(.9rem,1.2vw,1rem)}
+  .beyond-sub b{color:var(--ink);font-weight:500}
+  .epitaph{
+    margin:clamp(40px,7vh,64px) auto 0;
+    font-family:var(--font-mono);font-size:11px;letter-spacing:.32em;color:var(--dim);
+  }
+  footer{
+    margin-top:clamp(60px,10vh,90px);
+    padding:30px clamp(20px,5vw,64px);
+    border-top:1px solid var(--line);
+    display:flex;justify-content:space-between;flex-wrap:wrap;gap:14px;
+    font-size:11px;color:var(--dim);letter-spacing:.1em;
+  }
+  footer .right{display:flex;gap:22px}
+
+  @media(max-width:900px){
+    .cards{grid-template-columns:repeat(2,1fr)}
+    .dil-wrap{grid-template-columns:1fr}
+    .hud-right{display:none}
+    .hud{top:auto;bottom:clamp(70px,12vh,96px);right:clamp(20px,4vw,40px)}
+  }
+  @media(max-width:520px){
+    .cards{grid-template-columns:1fr}
+    .hud-left{display:none}
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    .grain,.bg-stars,.scroll-cue,.bh-dot::after,.orbit-wrap .p,.astro,.hawk .beam,.falling .me{animation:none}
+    html{scroll-behavior:auto}
+    .reveal,.stagger>*{opacity:1;transform:none;transition:none}
+  }
+</style>
+</head>
+<body>
+
+<div class="bg-stars" aria-hidden="true"></div>
+<div class="scanlines" aria-hidden="true"></div>
+<div class="grain" aria-hidden="true"></div>
+
+<header class="site-head">
+  <a class="brand" href="#hero"><span class="logo">EVENT HORIZON</span><span class="cn">事件视界观测站</span></a>
+  <nav class="head-nav" aria-label="章节">
+    <a href="#physics">物理</a>
+    <a href="#dilation">时间膨胀</a>
+    <a href="#beyond">视界之内</a>
+  </nav>
+</header>
+
+<!-- ================= HERO ================= -->
+<section class="hero" id="hero" aria-label="黑洞实时模拟">
+  <canvas id="bh" aria-label="实时引力透镜模拟：一个黑洞扭曲其周围星光与吸积盘"></canvas>
+
+  <div class="hero-ui">
+    <div>
+      <div class="eyebrow mono">OBSERVATION // UNIT 001 — M-87*</div>
+      <h1 class="hero-title">
+        EVENT<br>HORIZON
+        <span class="cn">黑洞 · 事件视界</span>
+      </h1>
+      <p class="hero-tag">
+        光在这里失速的地方，<b>我们开始理解宇宙的边界</b>。<br>
+        这不是想象——这是广义相对论被逐点渲染的样子。
+      </p>
+    </div>
+
+    <div class="hero-bottom">
+      <span class="hint mono"><span class="dot"></span>移动鼠标 · 拖动改变你的视角</span>
+      <span class="scroll-cue mono">SCROLL TO DESCEND</span>
+    </div>
+  </div>
+
+  <aside class="hud hud-right" aria-label="遥测数据">
+    <h4 class="mono">TELEMETRY</h4>
+    <div class="row"><span class="k mono">对象</span><span class="v">M-87*</span></div>
+    <div class="row"><span class="k mono">距离</span><span class="v">55.0 Mly</span></div>
+    <div class="row"><span class="k mono">质量</span><span class="v hot">6.5×10⁹ M☉</span></div>
+    <div class="row"><span class="k mono">视界半径</span><span class="v">1.9×10¹³ m</span></div>
+    <div class="row"><span class="k mono">光子球</span><span class="v">2.60 R_S</span></div>
+  </aside>
+
+  <aside class="hud hud-left" aria-label="实时参数">
+    <h4 class="mono">LIVE VIEW</h4>
+    <div class="row"><span class="k mono">视角倾角</span><span class="v hot" id="hud-i">78.0°</span></div>
+    <div class="row"><span class="k mono">透镜强度</span><span class="v hot" id="hud-lens">θ_E 3.3</span></div>
+    <div class="row"><span class="k mono">轨道相位</span><span class="v" id="hud-phi">0.00 rad</span></div>
+  </aside>
+</section>
+
+<!-- ================= PHYSICS ================= -->
+<section id="physics">
+  <div class="sec-label mono reveal">SECTION 01 — IT SPEAKS IN FOUR WORDS</div>
+  <h2 class="sec-title reveal">它用四个词<br>描述自己。</h2>
+  <p class="sec-sub reveal">黑洞只有一个参数可以完整描述它——质量。剩下的，都由引力接管。</p>
+
+  <div class="cards stagger" id="cards">
+    <article class="card">
+      <span class="num mono">01</span>
+      <div class="cn-title">事件视界</div>
+      <span class="en-title">EVENT HORIZON</span>
+      <p>从这里开始，逃逸速度超过光速。<b>没有任何信号</b>——光、无线电、乃至引力波的信使——能回到我们这边。它不是一个黑暗的物体，而是一个不再存在<b>「向外」</b>的方向。</p>
+      <div class="card-vis"><div class="bh-dot"></div></div>
+    </article>
+
+    <article class="card">
+      <span class="num mono">02</span>
+      <div class="cn-title">光子球</div>
+      <span class="en-title">PHOTON SPHERE</span>
+      <p>在 <b>1.5 R<sub>S</sub></b> 处，光会绕着黑洞转圈，像一只永远找不到落点的信鸽。你在观测里看到的那圈光环，是无数被困住的光，在坠入之前最后的一次回眸。</p>
+      <div class="card-vis">
+        <div class="orbit-wrap">
+          <span class="o o1"></span><span class="o o2"></span><span class="o o3"></span>
+          <span class="p"></span><span class="p p2"></span>
+        </div>
+      </div>
+    </article>
+
+    <article class="card">
+      <span class="num mono">03</span>
+      <div class="cn-title">潮汐撕裂</div>
+      <span class="en-title">SPAGHETTIFICATION</span>
+      <p>坠向一个恒星质量的黑洞，你的头与脚之间的引力差会把整条身体拉长——<b>一厘米宽，两公里高</b>。物理学家为这个死法起了一个无比温柔的名字：意大利面化。</p>
+      <div class="card-vis"><div class="astro"></div></div>
+    </article>
+
+    <article class="card">
+      <span class="num mono">04</span>
+      <div class="cn-title">霍金辐射</div>
+      <span class="en-title">HAWKING RADIATION</span>
+      <p>视界边缘的真空从不真正安静。量子涨落偶尔放走一半能量，黑洞以极慢的速度蒸发——一个恒星质量的黑洞，需要 <b>10<sup>67</sup> 年</b>，比宇宙的一生还要漫长得多。</p>
+      <div class="card-vis">
+        <div class="hawk">
+          <span class="hcore"></span>
+          <span class="beam" style="--dx:-46px;--dy:-30px"></span>
+          <span class="beam" style="--dx:44px;--dy:-34px"></span>
+          <span class="beam" style="--dx:0px;--dy:-52px"></span>
+          <span class="beam" style="--dx:-38px;--dy:36px"></span>
+          <span class="beam" style="--dx:40px;--dy:38px"></span>
+        </div>
+      </div>
+    </article>
+  </div>
+</section>
+
+<!-- ================= TIME DILATION ================= -->
+<section id="dilation">
+  <div class="sec-label mono reveal">SECTION 02 — TIME DILATION</div>
+  <h2 class="sec-title reveal">向视界坠落，<br><em>时间开始背叛你。</em></h2>
+  <p class="sec-sub reveal">在远处，一小时只是一小时。靠近它，你的秒针开始与宇宙的钟错开——直到错开得再也追不上。</p>
+
+  <div class="dil-wrap reveal">
+    <div class="dil-readout">
+      <div class="dil-ring" id="dilRing">
+        <div>
+          <div class="dil-factor"><span id="dilFactor">1.000000</span><span class="times">×</span></div>
+          <div class="dil-factormeta mono">TIME DILATION · γ = 1/√(1−R<sub>S</sub>/r)</div>
+        </div>
+      </div>
+    </div>
+    <div class="dil-controls">
+      <div class="dil-label mono"><span>拖动探针 · 观测距离 r</span><span id="dilR">∞</span></div>
+      <input type="range" id="dilSlider" min="0" max="1000" step="1" value="0" aria-label="靠近黑洞的观测距离">
+      <div class="dil-scale"><span>安全距离</span><span>光子球</span><span>视界 R_S</span></div>
+      <p class="dil-note" id="dilNote">此刻你很远。时间在这里，几乎是绝对的。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= BEYOND ================= -->
+<section id="beyond">
+  <div class="falling" aria-hidden="true">
+    <div class="hole"></div>
+    <div class="me"></div>
+  </div>
+  <div class="sec-label mono reveal">SECTION 03 — WHAT LIES WITHIN</div>
+  <p class="beyond-line reveal">对于坠落的你，<em>一切发生在瞬间。</em><br>对于目送你的人，你永远停在视界上——<em>越来越红，越来越暗，却永不消失。</em></p>
+  <p class="beyond-sub reveal">宇宙从不允许你看见答案。它只允许你，<b>永远地、无限地接近</b>——然后把你的一切信息，连同时间本身，一起留在那道红光里。</p>
+  <p class="epitaph mono reveal">FROM HERE ON, THE LAWS OF PHYSICS BECOME A RUMOR</p>
+
+  <footer>
+    <span>EVENT HORIZON — 基于广义相对论 · 简化透镜渲染</span>
+    <span class="right">
+      <span>致敬 M-87* 第一张黑洞照片</span>
+      <span>© 2026 观测站</span>
+    </span>
+  </footer>
+</section>
+
+<script>
+/* ====================================================
+   黑洞实时模拟 — 连续吸积盘网格 · 多普勒射束 · 流体湍流
+   Interstellar 风格: 平滑盘面 + 引力透镜包裹 + 泛光
+   ==================================================== */
+(function(){
+  const canvas = document.getElementById('bh');
+  const ctx = canvas.getContext('2d');
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  const SHADOW = 2.6;   // 事件视界影半径 (天空单位)
+  const RING_R = 2.78;  // 光子环贴合半径
+  const THE = 3.3;      // 背景星的爱因斯环半径
+  const R_IN = 3.0, R_OUT = 13.0;
+  const RA = 60, AN = 100;             // 径向 / 周向 网格
+  const clamp = (v,a,b) => Math.max(a, Math.min(b, v));
+
+  let W=0,H=0,SCALE=46,zoom=1;
+  const mouse = {x:0.5, y:0.56};
+  let iCur=74, tauCur=0.0, t=0, last=performance.now();
+  let nebCanvas=null, diskCanvas=null, diskCtx=null;
+
+  /* ---------- 投影 / 透镜 ---------- */
+  // 盘面 3D → 天空坐标。近侧(sy>0)在视界下方, 远端经透镜包裹到上方。
+  function project(X,Y,si,ci,st,ct){
+    const sx = X*st - Y*ct;
+    const sy = X*ci*ct + Y*ci*st;
+    const dep = X*si*ct + Y*si*st;   // >0 靠近观测者
+    return [sx,sy,dep];
+  }
+  // 视界附近的包裹映射: 掠过视界的光被拉成紧贴阴影的光子环
+  function remap(B){
+    if(B < SHADOW) return RING_R + 0.06;
+    if(B < SHADOW + 0.8) return RING_R + (B - SHADOW) * 0.6;
+    return B;
+  }
+
+  /* ---------- 盘面颜色: 黑体温度 + 多普勒位移 ---------- */
+  const STOPS = [[212,232,255],[255,246,224],[255,198,132],[255,138,70],[232,88,42],[176,52,30]];
+  function diskColor(temp, vl){
+    const t = clamp(temp,0,1);
+    const f = t*(STOPS.length-1), i = Math.floor(f), fr = f-i;
+    const a = STOPS[i], b = STOPS[Math.min(i+1, STOPS.length-1)];
+    let c = [0,1,2].map(k => a[k] + (b[k]-a[k])*fr);
+    if(vl > 0){                       // 迎面 → 蓝移: 提亮、偏白蓝
+      const k = Math.min(1, vl*1.9);
+      c = [0,1,2].map((_,k2) => c[k2] + (235 - c[k2])*k*0.72);
+      c[2] = Math.min(255, c[2] + 26*k);
+    } else {                          // 背向 → 红移: 压暗、减蓝保红
+      const k = Math.min(1, -vl*1.9);
+      c[2] *= (1 - 0.55*k);
+      c[1] *= (1 - 0.3*k);
+      c[0] = Math.min(255, c[0]*(1 + 0.05*k));
+    }
+    return c;
+  }
+  const cssc = (c,a) => `rgba(${c[0]|0},${c[1]|0},${c[2]|0},${a})`;
+
+  /* ---------- 背景星场 ---------- */
+  const starSprite = (function(){
+    const c = document.createElement('canvas'); c.width = c.height = 16;
+    const g = c.getContext('2d');
+    const gr = g.createRadialGradient(8,8,0,8,8,8);
+    gr.addColorStop(0,'#fff'); gr.addColorStop(.3,'#dbe6ff'); gr.addColorStop(1,'rgba(0,0,0,0)');
+    g.fillStyle = gr; g.fillRect(0,0,16,16);
+    return c;
+  })();
+
+  let stars = [];
+  function initStars(){
+    stars = [];
+    for(let i=0;i<330;i++){
+      const b = 0.25 + Math.pow(Math.random(),0.85)*24;
+      stars.push({b, a:Math.random()*Math.PI*2, size:1.1+Math.random()*2.2, seed:Math.random()*6.283, mag:Math.random()});
+    }
+  }
+
+  function lens(b){
+    const d = Math.sqrt(b*b + 4*THE*THE);
+    return { th:(b+d)/2, th2:(d-b)/2 };
+  }
+
+  function drawStars(s){
+    const maxR = Math.hypot(W,H)/2/s + 1;
+    const twk = reduced ? 1 : (0.72 + 0.28*Math.sin(t*1.3));
+    for(const st of stars){
+      const {th,th2} = lens(st.b);
+      if(th > maxR) continue;
+      const m = th/(st.b + 0.001);
+      const alpha = Math.min(1, 0.30 + st.mag*(0.5 + 0.9*Math.min(m,2.2))) * twk;
+      const a = st.a;
+      const px = Math.cos(a)*th*s, py = Math.sin(a)*th*s;
+      const sz = st.size*s*0.045*(0.6 + 0.8*Math.min(m,1.7));
+      ctx.globalAlpha = alpha;
+      ctx.drawImage(starSprite, px-sz*3, py-sz*3, sz*6, sz*6);
+      // 紧贴爱因斯环的背景星 → 切向弧抹
+      if(st.b < THE*1.7 && th > SHADOW){
+        for(let k=-2;k<=2;k++){
+          const a2 = a + k*(0.35 + st.b*0.07)/th;
+          ctx.globalAlpha = alpha*0.5;
+          ctx.drawImage(starSprite, Math.cos(a2)*th*s-sz*2, Math.sin(a2)*th*s-sz*2, sz*4, sz*4);
+        }
+      }
+      // 次级像 (环内侧, 对侧) — 微弱
+      if(th2 > SHADOW + 0.12){
+        const a2 = a + Math.PI;
+        ctx.globalAlpha = alpha*0.2;
+        ctx.drawImage(starSprite, Math.cos(a2)*th2*s-sz*2, Math.sin(a2)*th2*s-sz*2, sz*4, sz*4);
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function buildNebula(){
+    nebCanvas = document.createElement('canvas');
+    nebCanvas.width = W; nebCanvas.height = H;
+    const g = nebCanvas.getContext('2d');
+    const gr = g.createRadialGradient(W/2,H/2,0, W/2,H/2, H*0.95);
+    gr.addColorStop(0,'rgba(26,20,44,0.0)');
+    gr.addColorStop(.42,'rgba(15,12,32,0.85)');
+    gr.addColorStop(1,'#030409');
+    g.fillStyle = gr; g.fillRect(0,0,W,H);
+    const blob = (x,y,r,c) => {
+      const bg = g.createRadialGradient(x,y,0,x,y,r);
+      bg.addColorStop(0,c); bg.addColorStop(1,'rgba(0,0,0,0)');
+      g.fillStyle = bg; g.beginPath(); g.arc(x,y,r,0,7); g.fill();
+    };
+    blob(W*0.28,H*0.34,H*0.5,'rgba(36,24,62,0.13)');
+    blob(W*0.74,H*0.26,H*0.45,'rgba(22,42,70,0.10)');
+    blob(W*0.22,H*0.72,H*0.5,'rgba(50,28,42,0.09)');
+    blob(W*0.66,H*0.7,H*0.5,'rgba(18,38,58,0.09)');
+  }
+
+  /* ---------- 连续盘面网格 ---------- */
+  let grid = [];
+  function computeGrid(s){
+    const si = Math.sin(iCur), ci = Math.cos(iCur);
+    const st = Math.sin(tauCur), ct = Math.cos(tauCur);
+    grid = [];
+    for(let i=0;i<=RA;i++){
+      const u = Math.pow(i/RA, 1.15);
+      const r = R_IN + (R_OUT-R_IN)*u;
+      const wob = 1 + 0.016*Math.sin(t*0.8 + i*0.5) + 0.011*Math.sin(t*1.5 + i*0.17);
+      const rr = r*wob;
+      const rot = -2.6*t / Math.pow(rr, 1.5);      // 差速转动: 内快外慢
+      const row = [];
+      for(let j=0;j<AN;j++){
+        const phi = (j/AN)*Math.PI*2 + rot;
+        const X = rr*Math.cos(phi), Y = rr*Math.sin(phi);
+        const [sx,sy,dep] = project(X,Y,si,ci,st,ct);
+        const B = Math.hypot(sx,sy);
+        const a = Math.atan2(sy,sx);
+        const Bm = remap(B);
+        row.push({ x:Math.cos(a)*Bm*s, y:Math.sin(a)*Bm*s, B, dep });
+      }
+      grid.push(row);
+    }
+  }
+
+  function drawDisk(){
+    const s = SCALE*zoom;
+    computeGrid(s);
+    const dd = diskCtx;
+    dd.setTransform(0.5,0,0,0.5,0,0);
+    dd.clearRect(0,0, W*2, H*2);
+    dd.translate(W/2, H/2);
+    const si = Math.sin(iCur);
+    for(let i=0;i<RA;i++){
+      const u0 = Math.pow(i/RA,1.15), u1 = Math.pow((i+1)/RA,1.15);
+      const rMid = R_IN + (R_OUT-R_IN)*(u0+u1)/2;
+      const temp = clamp((Math.pow(R_IN/rMid, 0.75) - 0.32)/0.68, 0, 1);
+      const rotMid = -2.6*t / Math.pow(rMid, 1.5);
+      const row0 = grid[i], row1 = grid[i+1];
+      for(let j=0;j<AN;j++){
+        const j2 = (j+1)%AN;
+        const p0=row0[j], p1=row0[j2], p2=row1[j2], p3=row1[j];
+        if(p0.B<SHADOW*0.98 && p1.B<SHADOW*0.98 && p2.B<SHADOW*0.98 && p3.B<SHADOW*0.98) continue;
+        const phiMid = (j+0.5)/AN*Math.PI*2 + rotMid;
+        const vlMid = clamp((-0.7071/Math.sqrt(rMid))*si*Math.sin(tauCur - phiMid), -0.72, 0.72);
+        const boost = Math.pow(1/(1-vlMid), 2.2);       // 多普勒射束
+        const turb = 0.62
+          + 0.32*Math.sin(2*phiMid - 2.6*Math.log(rMid) + t*1.15)
+          + 0.16*Math.sin(7*phiMid + 3.2*Math.log(rMid) - t*1.8);  // 螺旋湍流
+        const base = clamp(temp*0.85 + 0.1, 0.1, 0.85);
+        // 引力透镜放大: 远端(盘后)光线弯折聚拢, 越贴视界越亮 — 形成顶上弧光
+        const depMid = (p0.dep + p1.dep + p2.dep + p3.dep)/4;
+        const mag = depMid < 0 ? 1 + 1.6*Math.exp(-(p0.B+p1.B+p2.B+p3.B)/4*0.32) : 1;
+        const alpha = clamp(base * clamp(boost, 0.14, 2.6) * Math.max(0.12, turb) * mag, 0, 1);
+        dd.fillStyle = cssc(diskColor(temp, vlMid), alpha);
+        dd.beginPath();
+        dd.moveTo(p0.x,p0.y); dd.lineTo(p1.x,p1.y); dd.lineTo(p2.x,p2.y); dd.lineTo(p3.x,p3.y);
+        dd.closePath(); dd.fill();
+      }
+    }
+    // 合成到主画布: 清晰层 + 泛光层
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    ctx.filter = 'blur(2px)';
+    ctx.globalAlpha = 1;
+    ctx.drawImage(diskCanvas, 0, 0, W, H);
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.filter = 'blur(12px)';
+    ctx.globalAlpha = 0.4;
+    ctx.drawImage(diskCanvas, 0, 0, W, H);
+    ctx.filter = 'none';
+    ctx.restore();
+    ctx.globalAlpha = 1;
+  }
+
+  function drawShadowAndRing(s){
+    const rs = SHADOW*s;
+    // 暖色晕
+    let g = ctx.createRadialGradient(0,0,rs*0.5, 0,0,rs*1.9);
+    g.addColorStop(0,'rgba(0,0,0,0)');
+    g.addColorStop(.55,'rgba(255,150,80,0.07)');
+    g.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0,0,rs*1.9,0,7); ctx.fill();
+    // 光子环 (贴合视界)
+    const rr = RING_R*s;
+    ctx.strokeStyle = 'rgba(255,238,210,0.62)'; ctx.lineWidth = Math.max(1.2, s*0.032);
+    ctx.beginPath(); ctx.arc(0,0,rr,0,7); ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,180,110,0.16)'; ctx.lineWidth = Math.max(2.5, s*0.1);
+    ctx.beginPath(); ctx.arc(0,0,rr,0,7); ctx.stroke();
+    // 事件视界纯黑影
+    g = ctx.createRadialGradient(0,0,rs*0.7, 0,0,rs);
+    g.addColorStop(0,'#000'); g.addColorStop(.7,'#000');
+    g.addColorStop(.9,'rgba(12,9,6,0.95)');
+    g.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0,0,rs,0,7); ctx.fill();
+  }
+
+  function drawVignette(){
+    const g = ctx.createRadialGradient(W/2,H/2, Math.min(W,H)*0.34, W/2,H/2, Math.max(W,H)*0.72);
+    g.addColorStop(0,'rgba(0,0,0,0)');
+    g.addColorStop(1,'rgba(0,0,0,0.62)');
+    ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
+  }
+
+  function frame(now){
+    const dt = Math.min(0.05, (now-last)/1000); last = now;
+    t += dt * (reduced ? 0 : 1);
+
+    const targetI  = clamp(74 + (mouse.y-0.5)*-28, 56, 86);
+    const targetTau = 0.4 + (mouse.x-0.5)*1.7 + Math.sin(t*0.08)*(reduced?0:0.14);
+    iCur  += (targetI  - iCur)*Math.min(1, dt*4);
+    tauCur += (targetTau - tauCur)*Math.min(1, dt*4);
+
+    ctx.clearRect(0,0,W,H);
+    if(nebCanvas) ctx.drawImage(nebCanvas, 0, 0);
+    ctx.save(); ctx.translate(W/2,H/2); drawStars(SCALE*zoom); ctx.restore();
+    drawDisk();
+    ctx.save(); ctx.translate(W/2,H/2); drawShadowAndRing(SCALE*zoom); ctx.restore();
+    drawVignette();
+
+    document.getElementById('hud-i').textContent  = iCur.toFixed(1) + '°';
+    document.getElementById('hud-phi').textContent = (tauCur*3).toFixed(2) + ' rad';
+
+    requestAnimationFrame(frame);
+  }
+
+  function resize(){
+    DPR = Math.min(2, window.devicePixelRatio || 1);
+    W = canvas.clientWidth; H = canvas.clientHeight;
+    canvas.width = Math.round(W*DPR); canvas.height = Math.round(H*DPR);
+    ctx.setTransform(DPR,0,0,DPR,0,0);
+    SCALE = Math.min(W,H) * 0.042;
+    buildNebula();
+    diskCanvas = document.createElement('canvas');
+    diskCanvas.width = Math.round(W); diskCanvas.height = Math.round(H);
+    diskCtx = diskCanvas.getContext('2d');
+  }
+
+  function onPointer(e){
+    const r = canvas.getBoundingClientRect();
+    mouse.x = (e.clientX - r.left)/r.width;
+    mouse.y = (e.clientY - r.top)/r.height;
+  }
+  window.addEventListener('pointermove', onPointer, {passive:true});
+  canvas.addEventListener('wheel', e => {
+    e.preventDefault();
+    zoom = Math.max(0.6, Math.min(2.4, zoom*Math.pow(1.0015,-e.deltaY)));
+  }, {passive:false});
+
+  initStars(); resize();
+  window.addEventListener('resize', resize);
+  requestAnimationFrame(frame);
+})();
+
+
+/* ====================================================
+   时间膨胀交互
+   ==================================================== */
+(function(){
+  const slider=document.getElementById('dilSlider');
+  const factor=document.getElementById('dilFactor');
+  const rEl=document.getElementById('dilR');
+  const note=document.getElementById('dilNote');
+  const ring=document.getElementById('dilRing');
+
+  function fmt(v){
+    if(v>=1e6) return '∞';
+    if(v>=1e4) return v.toExponential(1);
+    if(v<1.1) return v.toFixed(6);
+    if(v<100) return v.toFixed(2);
+    return v.toExponential(2);
+  }
+
+  function update(){
+    const p=slider.value/1000;           // 0(远) → 1(视界)
+    const gamma=1/(1-p);                 // γ
+    const r=1/(2*p-p*p);                 // 观测距离 R_S
+    factor.textContent=fmt(gamma);
+    rEl.textContent= p<0.005?'∞':(r>=1000?r.toExponential(0):r.toFixed(2))+' R_S';
+
+    const deg=18+322*Math.min(1,Math.log10(Math.min(gamma,1e4)+1)/4.3);
+    ring.style.setProperty('--deg',deg.toFixed(1)+'deg');
+
+    let msg;
+    if(p<0.32) msg='此刻你很远。<b>一小时，就是一小时。</b>';
+    else if(p<0.66) msg='仍在坠落……引力开始<b>拉扯你的时钟</b>，秒针走得比远处慢一点。';
+    else if(p<0.9) msg='你身边的人声变得又低又长——<b>你的钟，比宇宙慢了几十倍</b>。';
+    else if(p<0.995) msg='视界近在咫尺。<b>对遥远的目击者而言，你已经永恒地冻结在这里。</b>';
+    else msg='你抵达了边界——<b>从这里开始，时间与空间互换角色</b>。';
+    note.innerHTML=msg;
+  }
+  slider.addEventListener('input',update);
+  update();
+})();
+
+/* ====================================================
+   滚动显现
+   ==================================================== */
+(function(){
+  const io=new IntersectionObserver(entries=>{
+    for(const en of entries){
+      if(en.isIntersecting){
+        en.target.classList.add('in');
+        io.unobserve(en.target);
+      }
+    }
+  },{threshold:0.15,rootMargin:'0px 0px -8% 0px'});
+  document.querySelectorAll('.reveal,.stagger').forEach(el=>io.observe(el));
+})();
+</script>
+</body>
+</html>
